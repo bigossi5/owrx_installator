@@ -3,11 +3,13 @@ Openwebrx Plus instalator, umożliwia zainstalowanie Openwebrx+ za pomocą jedne
 
 Użycie: 
 1. Metoda curl (nie potrzeba git):
+   
 curl -O https://raw.githubusercontent.com/bigossi5/owrx_installator/main/owrx_installer.sh
 chmod +x owrx_installer.sh
 bash owrx_installer.sh
 
 2. Metoda z git:
+   
 git clone https://github.com/bigossi5/owrx_installator.git
 cd owrx_installator
 chmod +x owrx_installer.sh
