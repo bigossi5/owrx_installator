@@ -64,6 +64,7 @@ bash owrx_installer.sh
 * Instalator **automatycznie pobiera wszystkie potrzebne składniki** do instalacji.
 * Podczas instalacji zostaniesz poproszony o podanie **podstawowych danych konfiguracyjnych** (np. znak krótkofalarski, lokalizacja, adres e-mail).
 * Instalator ma wbudowaną **obsługę DMR oraz satelit pogodowych typu NOAA**, instalując niezbędne komponenty automatycznie (w tym `satdump` oraz `softbme`).
+* **W zestawie domyślnie otrzymujesz profil dla RTL-SDR wraz z dodanymi, popularnymi presetami zakładek**, abyś mógł od razu cieszyć się słuchaniem!
 * Po instalacji nastąpi **automatyczny restart serwera**.
 * Po restarcie, dostęp do swojej instancji OpenWebRX+ uzyskasz pod adresem: `http://<ip_serwera>:8073` (zastąp `<ip_serwera>` adresem IP Twojego serwera).
 * Po zalogowaniu **niezbędne jest przejście do ustawień** w celu konfiguracji OWRX pod siebie.
