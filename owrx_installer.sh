@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-trap 'echo "❌ Wystąpił błąd w linii $LINENO"; exit 1' ERR
+trap 'echo "= Wystąpił błąd w linii $LINENO"; exit 1' ERR
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 log_step() {
@@ -88,7 +88,7 @@ get_input "Email" "Podaj swój adres e-mail:" EMAIL
 MAGIC_KEY=$(head -c 128 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 8)
 
 if [ -z "$MAGIC_KEY" ]; then
-    echo "❌ Nie udało się wygenerować magickey"
+    echo "= Nie udało się wygenerować magickey"
     exit 1
 fi
 
@@ -454,7 +454,26 @@ _EOF_
 
 popd || echo "Nie udało się powrócić do katalogu poprzedniego"
 
-log_step "✅ Instalacja zakończona pomyślnie!"
+log_step " Instalacja zakończona pomyślnie!"
+
+echo ""
+read -p "Czy chcesz dodać zakładki z KiwiSDR (t/n): " DODAJ_ZAKLADKI
+
+if [[ "$DODAJ_ZAKLADKI" =~ ^[Tt]$ ]]; then
+    echo "Pobieranie zakładek z GitHuba..."
+    curl -L -o /etc/openwebrx/bookmarks.d/kiwi_sdr.json https://raw.githubusercontent.com/bigossi5/openwebrxplus/master/bookmarks.d/kiwi_sdr.json
+
+    if [ $? -eq 0 ]; then
+        echo " Zakładki zostały dodane do /etc/openwebrx/bookmarks.d/"
+    else
+        echo "Wystąpił błąd podczas pobierania zakładek."
+    fi
+else
+    echo "Pominięto dodawanie zakładek."
+fi
+
+systemctl restart openwebrx || { echo "Nie udało się uruchomić usługi OpenWebRX"; exit 1; }
+
 echo
 read -p "Czy chcesz teraz zrestartować system? [t/N] " REBOOT_NOW
 if [[ "$REBOOT_NOW" =~ ^[TtYy]$ ]]; then
