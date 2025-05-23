@@ -43,6 +43,7 @@ Aby rozpocząć instalację, wykonaj poniższe kroki:
 ### 1. Metoda curl (nie potrzeba git):
 
 ```bash
+apt install curl -y
 curl -O https://raw.githubusercontent.com/bigossi5/owrx_installator/main/owrx_installer.sh
 chmod +x owrx_installer.sh
 bash owrx_installer.sh
