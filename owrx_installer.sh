@@ -1,37 +1,60 @@
 #!/bin/bash
-set -eux
+set -euo pipefail
 
+trap 'echo "❌ Wystąpił błąd w linii $LINENO"; exit 1' ERR
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
-echo "[1/6] Aktualizacja i instalacja niezbędnych pakietow"
-apt update
-apt install -y sudo curl gnupg ca-certificates git cmake build-essential pkgconf g++ wget dialog
+log_step() {
+    echo
+    echo "===> $1"
+    echo
+}
 
-echo "[2/6] Instalacja OpenWebRX+..."
-curl -s https://luarvique.github.io/ppa/openwebrx-plus.gpg | sudo gpg --yes --dearmor -o /etc/apt/trusted.gpg.d/openwebrx-plus.gpg
-sudo tee /etc/apt/sources.list.d/openwebrx-plus.list <<<"deb [signed-by=/etc/apt/trusted.gpg.d/openwebrx-plus.gpg] https://luarvique.github.io/ppa/bookworm ./"
-sudo apt update
-sudo apt install -y openwebrx
+log_step "[1/7] Aktualizacja i instalacja niezbędnych pakietów"
+apt update || { echo "Nie udało się wykonać 'apt update'"; exit 1; }
+apt install -y sudo curl gnupg ca-certificates git cmake build-essential pkgconf g++ wget dialog || {
+    echo "Nie udało się zainstalować pakietów bazowych"; exit 1;
+}
 
-echo "[3/6] Instalacja drivera RTL-SDR"
-apt install -y rtl-sdr librtlsdr0 librtlsdr-dev
+log_step "[2/7] Instalacja OpenWebRX+..."
+curl -fsSL https://luarvique.github.io/ppa/openwebrx-plus.gpg | sudo gpg --yes --dearmor -o /etc/apt/trusted.gpg.d/openwebrx-plus.gpg || {
+    echo "Nie udało się pobrać lub zapisać klucza GPG"; exit 1;
+}
+echo "deb [signed-by=/etc/apt/trusted.gpg.d/openwebrx-plus.gpg] https://luarvique.github.io/ppa/bookworm ./" | sudo tee /etc/apt/sources.list.d/openwebrx-plus.list >/dev/null || {
+    echo "Nie udało się dodać repozytorium OpenWebRX+"; exit 1;
+}
+sudo apt update || { echo "Nie udało się wykonać 'apt update' po dodaniu repozytorium"; exit 1; }
+sudo apt install -y openwebrx || { echo "Nie udało się zainstalować OpenWebRX+"; exit 1; }
 
-echo "[4/6] Instalacja zależności i kompilacja SatDump (bez GUI)..."
+log_step "[3/7] Instalacja drivera RTL-SDR"
+apt install -y rtl-sdr librtlsdr0 librtlsdr-dev || {
+    echo "Nie udało się zainstalować sterowników RTL-SDR"; exit 1;
+}
+
+log_step "[4/7] Instalacja zależności i kompilacja SatDump (bez GUI)..."
 apt install -y libfftw3-dev libpng-dev libtiff-dev libjemalloc-dev libcurl4-openssl-dev \
-               libvolk2-dev libnng-dev libzstd-dev libhdf5-dev librtlsdr-dev libhackrf-dev \
-               libairspy-dev libairspyhf-dev libad9361-dev libiio-dev libbladerf-dev \
-               libomp-dev ocl-icd-opencl-dev intel-opencl-icd mesa-opencl-icd
+    libvolk2-dev libnng-dev libzstd-dev libhdf5-dev librtlsdr-dev libhackrf-dev \
+    libairspy-dev libairspyhf-dev libad9361-dev libiio-dev libbladerf-dev \
+    libomp-dev ocl-icd-opencl-dev intel-opencl-icd mesa-opencl-icd || {
+        echo "Nie udało się zainstalować zależności dla SatDump"; exit 1;
+    }
 
-cd /opt
-git clone https://github.com/SatDump/SatDump.git
-cd SatDump
-mkdir build && cd build
-cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_GUI=OFF ..
-make -j"$(nproc)"
-make install
+cd /opt || { echo "Nie udało się przejść do katalogu /opt"; exit 1; }
+if [ ! -d SatDump ]; then
+    git clone https://github.com/SatDump/SatDump.git || { echo "Nie udało się sklonować repozytorium SatDump"; exit 1; }
+fi
+cd SatDump || { echo "Brak katalogu SatDump"; exit 1; }
 
-echo "[5/6] Konfiguracja i uruchomienie usługi OpenWebRX..."
+mkdir -p build && cd build || { echo "Nie udało się utworzyć lub wejść do katalogu build"; exit 1; }
+cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_GUI=OFF .. || {
+    echo "Błąd w konfiguracji CMake"; exit 1;
+}
+make -j"$(nproc)" || { echo "Błąd podczas kompilacji SatDump"; exit 1; }
+make install || { echo "Błąd podczas instalacji SatDump"; exit 1; }
 
+log_step "[5/7] Konfiguracja i uruchomienie usługi OpenWebRX..."
+
+# Funkcje do wczytywania danych użytkownika
 get_input() {
     local title="$1"
     local prompt="$2"
@@ -39,8 +62,13 @@ get_input() {
     local result
 
     result=$(dialog --ascii-lines --title "$title" --inputbox "$prompt" 10 60 3>&1 1>&2 2>&3 3>&-)
+    if [ $? -ne 0 ] || [ -z "$result" ]; then
+        echo "Użytkownik anulował lub podał pustą wartość dla: $title"
+        exit 1
+    fi
     eval "$varname=\"\$result\""
 }
+
 get_yesno() {
     local title="$1"
     local prompt="$2"
@@ -57,11 +85,24 @@ get_input "Znak" "Podaj swój znak krótkofalarski (callsign):" CALLSIGN
 get_input "Lokalizacja" "Podaj lokalizację odbiornika (np. Warszawa, Polska):" LOCATION
 get_input "Email" "Podaj swój adres e-mail:" EMAIL
 
-MAGIC_KEY=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 8)
+MAGIC_KEY=$(head -c 128 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 8)
+
+if [ -z "$MAGIC_KEY" ]; then
+    echo "❌ Nie udało się wygenerować magickey"
+    exit 1
+fi
 
 get_yesno "APRS iGate" "Czy chcesz włączyć APRS iGate?" APRS_ENABLED
 get_yesno "PSKReporter" "Czy chcesz włączyć PSKReporter?" PSK_ENABLED
 get_yesno "WSPRnet" "Czy chcesz włączyć WSPRnet?" WSPR_ENABLED
+
+log_step "[6/7] Generowanie pliku konfiguracyjnego OpenWebRX..."
+CONFIG_PATH="/usr/lib/python3/dist-packages/owrx/config/defaults.py"
+
+if ! touch "$CONFIG_PATH" 2>/dev/null; then
+    echo "Nie można zapisać pliku $CONFIG_PATH. Sprawdź uprawnienia lub istnienie katalogu."
+    exit 1
+fi
 
 cat > /usr/lib/python3/dist-packages/owrx/config/defaults.py <<EOF
 from owrx.property import PropertyLayer
@@ -367,37 +408,43 @@ defaultConfig = PropertyLayer(
 ).readonly()
 EOF
 
-dialog --ascii-lines --msgbox "Konfiguracja została zapisana" 10 60
+dialog --ascii-lines --msgbox "Konfiguracja została zapisana" 10 60 || echo "Błąd wyświetlania komunikatu"
 
 clear
 
-systemctl enable openwebrx
-systemctl start openwebrx
+log_step "Uruchamianie usługi OpenWebRX"
+systemctl enable openwebrx || { echo "Nie udało się włączyć usługi OpenWebRX"; exit 1; }
+systemctl start openwebrx || { echo "Nie udało się uruchomić usługi OpenWebRX"; exit 1; }
 
-echo "[6/6] Kompilacja i instalacja SoftMbe + codecserver-softmbe..."
+log_step "[7/7] Kompilacja i instalacja SoftMbe + codecserver-softmbe..."
+
 BUILD_PACKAGES="git build-essential debhelper cmake libprotobuf-dev protobuf-compiler"
-apt -y install --no-install-recommends $BUILD_PACKAGES libcodecserver-dev
+apt install -y --no-install-recommends $BUILD_PACKAGES libcodecserver-dev || {
+    echo "Nie udało się zainstalować pakietów do budowy SoftMbe"; exit 1;
+}
 
-pushd /tmp
-git clone https://github.com/szechyjs/mbelib.git
-cd mbelib
-dpkg-buildpackage
+pushd /tmp || { echo "Nie udało się przejść do katalogu /tmp"; exit 1; }
+
+git clone https://github.com/szechyjs/mbelib.git || { echo "Nie udało się sklonować mbelib"; exit 1; }
+cd mbelib || { echo "Brak katalogu mbelib"; exit 1; }
+dpkg-buildpackage || { echo "Błąd podczas budowania pakietu mbelib"; exit 1; }
 cd ..
-dpkg -i libmbe1_1.3.0_*.deb libmbe-dev_1.3.0_*.deb
+dpkg -i libmbe1_1.3.0_*.deb libmbe-dev_1.3.0_*.deb || { echo "Błąd podczas instalacji pakietów mbelib"; exit 1; }
 rm -rf mbelib
 
-git clone https://github.com/knatterfunker/codecserver-softmbe.git
-cd codecserver-softmbe
+git clone https://github.com/knatterfunker/codecserver-softmbe.git || { echo "Nie udało się sklonować codecserver-softmbe"; exit 1; }
+cd codecserver-softmbe || { echo "Brak katalogu codecserver-softmbe"; exit 1; }
 sed -i 's/dh \$@/dh \$@ --dpkg-shlibdeps-params=--ignore-missing-info/' debian/rules
-dpkg-buildpackage
+dpkg-buildpackage || { echo "Błąd podczas budowania codecserver-softmbe"; exit 1; }
 cd ..
-dpkg -i codecserver-driver-softmbe_0.0.1_*.deb
+dpkg -i codecserver-driver-softmbe_0.0.1_*.deb || { echo "Błąd podczas instalacji codecserver-softmbe"; exit 1; }
 rm -rf codecserver-softmbe
 
-apt remove -y --purge --autoremove $BUILD_PACKAGES
+apt remove -y --purge --autoremove $BUILD_PACKAGES || echo "Nie udało się usunąć pakietów buildowych"
 
-# Konfiguracja codecserver
-mkdir -p /etc/codecserver
+log_step "Tworzenie konfiguracji codecserver..."
+mkdir -p /etc/codecserver || { echo "Nie udało się utworzyć katalogu /etc/codecserver"; exit 1; }
+
 cat >> /etc/codecserver/codecserver.conf << _EOF_
 
 # add softmbe
@@ -405,8 +452,14 @@ cat >> /etc/codecserver/codecserver.conf << _EOF_
 driver=softmbe
 _EOF_
 
-popd
+popd || echo "Nie udało się powrócić do katalogu poprzedniego"
 
+log_step "✅ Instalacja zakończona pomyślnie!"
 echo
-echo "Instalacja zakończona pomyślnie"
-sudo reboot
+read -p "Czy chcesz teraz zrestartować system? [t/N] " REBOOT_NOW
+if [[ "$REBOOT_NOW" =~ ^[TtYy]$ ]]; then
+    reboot
+else
+    echo "Możesz zrestartować system później poleceniem: sudo reboot"
+fi
+
